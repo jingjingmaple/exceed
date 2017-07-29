@@ -1,0 +1,255 @@
+#include <Servo.h>
+Servo servo;
+
+#include <UnoWiFiDevEd.h>
+#include <pt.h>
+#define PT_DELAY(pt, ms, ts)\
+  ts = millis();\
+  PT_WAIT_WHILE(pt, millis()-ts < (ms));
+// PROTO THREAD  
+struct pt pt_rgbDetect;
+
+#define CONNECTOR "rest"
+#define SERVER_ADDR "158.108.165.223"
+#define SERVER_ADDR2 "128.199.232.240"
+char readAddr[] = "/data/AssassinZEED/";
+
+char readAddr1[] = "/data/AssassinZEED/toyison";///
+char readAddrMan[] = "/data/AssassinZEED/toyman";
+char writeAddr[] = "/data/AssassinZEED/toyman/set/false";
+struct pt pt_toy;
+#define TRIG_PIN 7 
+#define ECHO_PIN 8
+int duration,distance,count1,count2,i;
+
+//start color
+#define s0 A1
+#define s1 A0
+#define s2 A3
+#define s3 A4
+#define out A2
+int redOG,greenOG,blueOG,error;
+String color,catHead,catTail,catSuit;
+//end color
+
+CiaoData data;
+
+void setup(){  
+  Serial.begin(9600);
+  Ciao.begin();
+  PT_INIT(&pt_toy);
+  pinMode(TRIG_PIN,OUTPUT);
+  pinMode(ECHO_PIN,INPUT);
+  servo.attach(9);
+  //start color
+  PT_INIT(&pt_rgbDetect);
+  pinMode(s0, OUTPUT);  
+  pinMode(s1, OUTPUT);  
+  pinMode(s2, OUTPUT);  
+  pinMode(s3, OUTPUT);  
+  pinMode(out, INPUT);   
+  digitalWrite(s0, HIGH);  
+  digitalWrite(s1, LOW);
+  //end color
+} 
+
+void loop(){
+  rgbDetect(&pt_rgbDetect);
+  toy(&pt_toy);
+}
+PT_THREAD(toy(struct pt* pt)){
+  static uint32_t ts;
+  PT_BEGIN(pt);
+  while(1){
+    distance=Ultra();
+    data = Ciao.read(CONNECTOR, SERVER_ADDR, readAddr1);
+   Serial.println(String(data.get(2)));//-------------
+    if(String(data.get(2))=="false"){//ไม่ได้auto
+     data = Ciao.read(CONNECTOR, SERVER_ADDR, readAddrMan);/////////////////////
+     Serial.println(data.get(2));//-------------
+    // manOrder = String(data.get(2));
+   
+     if(String(data.get(2))=="true"){
+       i=0;
+       for( ;i<=3;i++){
+        servo.write(250);
+        PT_DELAY(pt,1000, ts);
+         servo.write(10);
+         PT_DELAY(pt,1000, ts);
+         Serial.println("1round");
+       }
+       data = Ciao.write(CONNECTOR, SERVER_ADDR, writeAddr);
+     }   
+     }
+     else if(String(data.get(2))=="true"){//auto
+      { Serial.println(distance);
+        if(distance<=100&&distance>=0){
+         
+      do{
+       // i=0;
+        //for(;i>=3;i++){
+        servo.write(250);
+        PT_DELAY(pt, 1000, ts);
+         servo.write(10);
+         PT_DELAY(pt, 1000, ts);
+        //}
+        //servo work จนกว่าจะไป // function เปิดปิด ultr
+        distance=Ultra(); 
+        Serial.println(distance);
+      }while(distance<=100);
+     }
+        }
+     }
+  }
+  PT_END(pt);
+}
+int Ultra(){
+    digitalWrite(TRIG_PIN, LOW);
+    delay(500);
+    digitalWrite(TRIG_PIN, HIGH);
+    delay(500);
+    digitalWrite(TRIG_PIN, LOW);
+    duration = pulseIn(ECHO_PIN,HIGH);
+    int distanceCm = duration / 29.1 / 2 ;
+    return distanceCm;
+  }
+
+PT_THREAD(rgbDetect(struct pt*pt)){
+  static uint32_t ts;
+  PT_BEGIN(pt);
+  while(1) {
+      error = 0;
+      scanColor();
+      catHead = checkColor();
+      Serial.print("Try......Cat's color: ");
+      Serial.println(catHead);
+      PT_DELAY(pt, 500, ts);
+      while(error < 6 && (catHead == "white" || catHead == "black" /*|| catHead == "gray" || catHead == "orange"*/)){
+        scanColor();
+        catSuit = checkColor();
+        Serial.print("Try......Cat's suit: ");
+        Serial.println(catSuit);
+        PT_DELAY(pt, 500, ts);
+        while(error < 6 && (catSuit == "red" || catSuit == "green" || catSuit == "blue")){
+          scanColor();
+          catTail = checkColor();
+          Serial.print("Try......Cat's tail: ");
+          Serial.println(catTail);
+          PT_DELAY(pt, 500, ts);
+          while(error < 6 && catHead == catTail){
+            Serial.print(">>>>>>>>True Cat!!!");
+  //        Serial.print("\tCat's color: ");
+  //        Serial.print(catTail);
+  //        Serial.print("\tCat's suit: ");
+  //        Serial.println(catSuit);
+            Ciao.write(CONNECTOR, SERVER_ADDR2,"/cat/color/"+catTail+","+catSuit);
+            error = 6;
+          }
+          error++;
+          PT_DELAY(pt, 500, ts);
+        }
+        error++;
+        PT_DELAY(pt, 500, ts);
+      }
+      PT_DELAY(pt, 500, ts);
+  }
+  PT_END(pt);
+}
+
+void scanColor(){    
+  digitalWrite(s2, LOW);  
+  digitalWrite(s3, LOW);  
+  redOG = 255 - pulseIn(out, digitalRead(out) == HIGH ? LOW : HIGH);
+  digitalWrite(s3, HIGH);  
+  blueOG = 255 - pulseIn(out, digitalRead(out) == HIGH ? LOW : HIGH);  
+  digitalWrite(s2, HIGH);  
+  greenOG = 255 - pulseIn(out, digitalRead(out) == HIGH ? LOW : HIGH);
+  if (redOG < 0)
+    redOG = 0;
+  if (greenOG < 0)
+    greenOG = 0;
+  if (blueOG < 0)
+    blueOG = 0;
+  Serial.print("R: ");  
+  Serial.print(redOG);  
+  Serial.print(" G: ");  
+  Serial.print(greenOG);
+  Serial.print(" B: ");  
+  Serial.println(blueOG);
+}
+
+String checkColor(){
+  if (redOG <= 30 && greenOG <= 30 && blueOG <= 30)
+    return "black";
+  else if (redOG >= 210 && greenOG >= 210 && blueOG >= 210)
+    return "white";
+/*  else {
+    int Max = max(max(redOG,greenOG),blueOG);
+    int Min = min(min(redOG,greenOG),blueOG);
+    int Middle = min(max(redOG,greenOG),blueOG);
+    if (Max-Min <= 50 && Middle <= Max-25 && Middle >= Min+25)
+      return "gray";
+    else {
+      float redH = redOG/255;
+      float greenH = greenOG/255;
+      float blueH = blueOG/255;
+      int rawHue;
+      if (Max = redOG)
+        rawHue = ((greenH - blueH)/(Max - Min))/6;
+      else if (Max = greenOG)
+        rawHue = ((blueH - redH)/(Max - Min))+2;
+      else if (Max = blueOG)
+        rawHue = ((redH - greenH)/(Max - Min))+4;
+      int colorHue = 60*rawHue;
+      if ((blueOG > redOG && blueOG > greenOG) && (colorHue <= 240 && colorHue >= 221))
+        return "blue";
+      else if ((redOG > blueOG && redOG > greenOG) && ((colorHue <= 10 && colorHue >= 0)||(colorHue <= 359 && colorHue >= 355)))
+        return "red";
+      else if ((greenOG > blueOG && greenOG > blueOG) && (colorHue <= 140 && colorHue >= 81))
+        return "green";
+      else if (colorHue <= 40 && colorHue >= 11)
+        return "orange";
+      else
+        return "other";
+    }
+  }*/
+  else if (redOG > blueOG && redOG > greenOG && redOG < 210)
+    return "red";
+  else if (greenOG > blueOG && greenOG > redOG && greenOG < 210)
+    return "green";
+  else if (blueOG > greenOG && blueOG > redOG && blueOG < 210)
+    return "blue";
+  else
+    return "other";
+}
+
+bool sentData(String _name, String value){
+  int x=1;
+  while(true){
+    data = Ciao.write(CONNECTOR, SERVER_ADDR, readAddr+_name+"/set/"+value);
+    Serial.println(data.get(2));
+    if (!data.isEmpty())
+      return true;
+    else
+      delay(2000);
+    if (x>5)
+      return false;
+    x++;
+  }
+}
+
+String getData(String _name){
+  int x=1;
+  String result;
+  while(true){
+    data = Ciao.read(CONNECTOR, SERVER_ADDR, readAddr+_name);
+    result = data.get(2);
+    if (!data.isEmpty())
+      return result;
+    else
+      delay(2000);
+    if (x>5)
+      return "";
+    x++;
+  }
+}
